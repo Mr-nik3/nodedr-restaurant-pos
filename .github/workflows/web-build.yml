@@ -1,0 +1,67 @@
+
+name: Build Restaurant Frontend
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - "apps/web/**"
+      - "packages/types/**"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/web-build.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install pnpm
+        run: npm install --global pnpm@10.8.1
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared types
+        run: pnpm --filter @nodedr-restaurant/types build
+
+      - name: Generate Prisma Client
+        run: pnpm --filter @nodedr-restaurant/backend prisma:generate
+
+      - name: Build frontend
+        run: pnpm --filter web build
+        env:
+          BACKEND_URL: http://localhost:4000
+          NEXT_PUBLIC_WS_URL: /socket.io
+
+      - name: Prepare standalone output
+        run: |
+          mkdir -p deploy/apps/web
+          cp -a apps/web/.next/standalone/. deploy/
+          mkdir -p deploy/apps/web/.next
+          cp -a apps/web/.next/static deploy/apps/web/.next/
+          if [ -d apps/web/public ]; then
+            cp -a apps/web/public deploy/apps/web/public
+          fi
+          tar -czf restaurant-frontend.tar.gz -C deploy .
+
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: restaurant-frontend
+          path: restaurant-frontend.tar.gz
+          retention-days: 3
